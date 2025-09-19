@@ -1,7 +1,12 @@
+// app/_layout.tsx
+import 'react-native-gesture-handler';
+ 
+
 import { DarkTheme, DefaultTheme, ThemeProvider } from '@react-navigation/native';
 import { useFonts } from 'expo-font';
 import { Stack } from 'expo-router';
 import { StatusBar } from 'expo-status-bar';
+import { GestureHandlerRootView } from 'react-native-gesture-handler'; // ← Agregar
 import 'react-native-reanimated';
 
 import { useColorScheme } from '@/hooks/useColorScheme';
