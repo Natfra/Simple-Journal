@@ -1,4 +1,5 @@
 // app/(tabs)/index.tsx
+import { useRouter } from 'expo-router';
 import { StatusBar } from 'expo-status-bar';
 import React, { useRef, useState } from 'react';
 import {
@@ -132,6 +133,8 @@ const SwipeableNoteCard: React.FC<SwipeableNoteCardProps> = ({ note, onDelete })
 };
 
 export default function NotesScreen(): React.JSX.Element {
+  const router = useRouter();
+  
   const [notes, setNotes] = useState<Note[]>([
     { id: 1, title: 'An amazing story', content: 'Once upon a time there was a developer...', date: '10 Nov 2024', color: '#BFDBFE' },
     { id: 2, title: 'Shopping List', content: 'Milk, Bread, Eggs, Coffee, Sugar...', date: '09 Nov 2024', color: '#FEF3C7' },
@@ -180,7 +183,18 @@ export default function NotesScreen(): React.JSX.Element {
     );
   };
 
-
+  const openNoteForEdit = (note: Note): void => {
+    router.push({
+      pathname: '/(tabs)/details/note-edit',
+      params: {
+        id: note.id.toString(),
+        title: note.title,
+        content: note.content,
+        color: note.color,
+        date: note.date,
+      },
+    });
+  };
 
   const resetModal = (): void => {
     setNewNoteTitle('');
@@ -271,11 +285,16 @@ export default function NotesScreen(): React.JSX.Element {
           </View>
         ) : (
           filteredNotes.map((note: Note) => (
-            <SwipeableNoteCard
+            <TouchableOpacity
               key={note.id}
-              note={note}
-              onDelete={() => confirmDeleteNote(note.id)}
-            />
+              activeOpacity={0.95}
+              onPress={() => openNoteForEdit(note)}
+            >
+              <SwipeableNoteCard
+                note={note}
+                onDelete={() => confirmDeleteNote(note.id)}
+              />
+            </TouchableOpacity>
           ))
         )}
       </ScrollView>
@@ -429,7 +448,7 @@ const styles = StyleSheet.create({
     paddingTop: 10,
   },
   notesContainer: {
-    paddingBottom: 100, // Espacio para el FAB
+    paddingBottom: 100,
   },
   emptyContainer: {
     flexGrow: 1,
