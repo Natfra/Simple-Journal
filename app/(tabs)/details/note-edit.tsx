@@ -1,26 +1,35 @@
 // app/(tabs)/details/note-edit.tsx
+import { Ionicons } from '@expo/vector-icons';
 import { useLocalSearchParams, useRouter } from 'expo-router';
 import { StatusBar } from 'expo-status-bar';
-import React, { useRef, useState } from 'react';
+import React, { useCallback, useRef, useState } from 'react';
 import {
+  ActivityIndicator,
+  Alert,
   Animated,
   Dimensions,
   KeyboardAvoidingView,
+  Modal,
   Platform,
   ScrollView,
   StyleSheet,
   Text,
   TextInput,
   TouchableOpacity,
+  TouchableWithoutFeedback,
   View,
 } from 'react-native';
 import { SafeAreaView } from 'react-native-safe-area-context';
 
-const { width, height } = Dimensions.get('window');
-const COLOR_BAND_HEIGHT = 220; 
-const HEADER_TITLE_THRESHOLD = COLOR_BAND_HEIGHT * 0.75; 
+// Importación del servicio de gemini
+import { generateGeminiContent } from '@/services/geminiService';
 
-// Función para aclarar el color (Crea los derivados sutiles)
+
+const { width, height } = Dimensions.get('window');
+const COLOR_BAND_HEIGHT = 220;
+const HEADER_TITLE_THRESHOLD = COLOR_BAND_HEIGHT * 0.75;
+
+// Función para aclarar el color 
 const lightenColor = (hex: string, amount: number) => {
   const color = hex.startsWith('#') ? hex.slice(1) : hex;
   let r = parseInt(color.substring(0, 2), 16);
@@ -30,7 +39,7 @@ const lightenColor = (hex: string, amount: number) => {
   let newR = Math.min(255, r + Math.floor((255 - r) * amount));
   let newG = Math.min(255, g + Math.floor((255 - g) * amount));
   let newB = Math.min(255, b + Math.floor((255 - b) * amount));
-  
+
   newR = Math.min(255, Math.max(0, newR));
   newG = Math.min(255, Math.max(0, newG));
   newB = Math.min(255, Math.max(0, newB));
@@ -43,35 +52,40 @@ const lightenColor = (hex: string, amount: number) => {
 export default function NoteEditScreen(): React.JSX.Element {
   const params = useLocalSearchParams();
   const router = useRouter();
-  
-  // OBTENIENDO DATOS DINÁMICOS. Usamos valores por defecto si no llegan los parámetros.
-  // NO usamos useState para estos valores, porque ya vienen de la navegación.
-  const initialNoteColor = (params.color as string) || '#FDE68A'; 
-  const initialNoteTitle = (params.title as string) || 'Shopping List';
-  const initialNoteContent = (params.content as string) || 'Milk, Bread, Eggs, Coffee, Sugar...';
+
+  // OBTENIENDO DATOS DINÁMICOS
+  const initialNoteColor = (params.color as string) || '#FDE68A';
+  const initialNoteTitle = (params.title as string) || 'Nueva Nota';
+  const initialNoteContent = (params.content as string) || ''; // Contenido vacío por defecto
   const initialNoteEmoji = (params.emoji as string) || '📘';
-  const initialNoteDate = (params.date as string) || 'Fecha desconocida'; // Usado para propósitos de ejemplo/futuros
+  const initialNoteDate = (params.date as string) || 'Fecha desconocida';
 
   const headerTitleOpacity = useRef(new Animated.Value(0)).current;
+  // Referencia para el scrollview
+  const scrollViewRef = useRef<ScrollView>(null);
 
-  // ESTADO PARA LA EDICIÓN: Usamos useState para la versión editable de los campos
-  // que el usuario puede cambiar, inicializados con los valores dinámicos.
+
+  // Estados principales de edición
   const [currentNoteTitle, setCurrentNoteTitle] = useState<string>(initialNoteTitle);
   const [currentNoteContent, setCurrentNoteContent] = useState<string>(initialNoteContent);
   const [currentNoteEmoji, setCurrentNoteEmoji] = useState<string>(initialNoteEmoji);
 
-  // EFECTO PARA SINCRONIZAR: Re-sincronizar el estado de edición (current...) 
-  // cuando los parámetros de navegación (initial...) cambian.
+  // Estados para la IA
+  const [isModalVisible, setIsModalVisible] = useState(false);
+  const [aiPrompt, setAiPrompt] = useState('');
+  const [isGenerating, setIsGenerating] = useState(false);
+  
+  // Efecto para sincronizar
   React.useEffect(() => {
     setCurrentNoteTitle(initialNoteTitle);
     setCurrentNoteContent(initialNoteContent);
     setCurrentNoteEmoji(initialNoteEmoji);
   }, [initialNoteTitle, initialNoteContent, initialNoteEmoji]);
 
-  // CÁLCULOS DE DISEÑO BASADOS EN EL COLOR DINÁMICO
-  const noteColor = initialNoteColor; // Usamos el color base dinámico
-  const boxColor = lightenColor(noteColor, 0.20); // Color de la caja flotante: Color base LIGERAMENTE aclarado
-  const contentBackgroundColor = '#FFFFFF'; // Fondo del contenido: BLANCO PURO
+  // Cálculos de diseño basados en el color dinámico
+  const noteColor = initialNoteColor;
+  const boxColor = lightenColor(noteColor, 0.20);
+  const contentBackgroundColor = '#FFFFFF';
 
   const handleGoBack = () => {
     router.back();
@@ -88,17 +102,73 @@ export default function NoteEditScreen(): React.JSX.Element {
     }).start();
   };
 
-  // Lógica de cambio de emoji CORREGIDA para evitar devolver un valor no-string
   const handleEmojiChange = (text: string) => {
-    // Si la entrada no es un string o está vacía, devuelve ''
     if (!text || text.length === 0) {
-        setCurrentNoteEmoji('');
-        return;
+      setCurrentNoteEmoji('');
+      return;
     }
-    // Para asegurar que solo se muestre el último carácter (el último emoji introducido)
     setCurrentNoteEmoji(text.slice(-1));
   };
   
+  // LÓGICA DE LA IA 
+  const handleGenerateWithAI = useCallback(async () => {
+    if (!aiPrompt.trim()) {
+      Alert.alert('Atención', 'Por favor, escribe una pregunta para el asistente.');
+      return;
+    }
+
+    setIsGenerating(true);
+    setIsModalVisible(false); // Cierra el modal mientras genera
+
+    try {
+      // Usar la versión actual del contenido para el PROMPT de CONTEXTO
+      const context = currentNoteContent.trim() || ''; 
+      
+      const fullPrompt = context 
+        ? `Basado en el siguiente texto de mi diario, por favor, genera una respuesta, un resumen, o una expansión según esta instrucción: "${aiPrompt}".\n\nTexto del diario: "${context}"`
+        : `Genera una respuesta o contenido basado en la siguiente instrucción: "${aiPrompt}"`;
+
+      const result = await generateGeminiContent(fullPrompt);
+      
+      // Usar la función de actualización de estado para aprender el contenido de forma segura
+      setCurrentNoteContent(prevContent => {
+        // En este punto, 'prevContent' es el estado más actual.
+        const currentContext = prevContent.trim();
+        // Usamos un separador si la nota no estaba vacía antes del resultado de la IA
+        const separator = currentContext ? '\n\n---\n\n✨ Asistente IA:\n' : '';
+        
+        // Si la nota estaba vacía antes de la generación, el texto de la IA es el nuevo contenido.
+        return `${prevContent}${separator}${result.text}`;
+      });
+      
+      setAiPrompt(''); // Limpiar el prompt
+
+      Alert.alert('Asistente IA', 'Contenido generado y añadido a tu nota.');
+      
+      // Desplazar ala final
+      setTimeout(() => {
+        scrollViewRef.current?.scrollToEnd({ animated: true });
+      }, 100);
+
+    } catch (error: any) {
+      console.error('Error al generar contenido con Gemini:', error);
+      Alert.alert('Error de IA', `No se pudo conectar con el asistente. ${error.message}`);
+    } finally {
+      setIsGenerating(false);
+    }
+  }, [aiPrompt, currentNoteContent]);
+
+  // TEMPORAL: Función de guardado simple (debe ser reemplazada por la lógica de DB)
+  const handleSaveNote = () => {
+    if (!currentNoteTitle.trim() || !currentNoteContent.trim()) {
+       Alert.alert('Error', 'El título y el contenido no pueden estar vacíos.');
+       return;
+    }
+    // Aquí iría la llamada a createEntry/updateEntry de useAppDB
+    Alert.alert('Guardado (TEMP)', `Nota "${currentNoteTitle}" guardada localmente.`);
+    // router.back();
+  }
+
 
   return (
     <SafeAreaView style={[styles.container, { backgroundColor: noteColor }]} edges={['top']}>
@@ -134,13 +204,28 @@ export default function NoteEditScreen(): React.JSX.Element {
           </View>
 
           <View style={styles.headerRight}>
+            {/* BOTÓN DEL ASISTENTE IA */}
             <TouchableOpacity 
               style={styles.headerIconButton}
               activeOpacity={0.7}
+              onPress={() => setIsModalVisible(true)} // Abre el modal de IA
+              disabled={isGenerating}
             >
-              <Text style={styles.headerIcon}>🧨</Text>
+              {isGenerating ? (
+                <ActivityIndicator size="small" color="#1F2937" />
+              ) : (
+                <Ionicons name="sparkles" size={24} color="#1F2937" />
+              )}
             </TouchableOpacity>
-            
+            {/* BOTÓN DE GUARDAR (Temporal) */}
+            <TouchableOpacity 
+              style={styles.headerIconButton}
+              activeOpacity={0.7}
+              onPress={handleSaveNote} // Llama a la función de guardado
+            >
+              <Text style={styles.headerIcon}>💾</Text> 
+            </TouchableOpacity>
+
             <TouchableOpacity 
               style={styles.headerIconButton}
               activeOpacity={0.7}
@@ -151,6 +236,7 @@ export default function NoteEditScreen(): React.JSX.Element {
         </View>
 
         <ScrollView 
+          ref={scrollViewRef}
           style={styles.contentArea}
           contentContainerStyle={[
             styles.contentContainer, 
@@ -169,9 +255,7 @@ export default function NoteEditScreen(): React.JSX.Element {
               <TextInput
                 style={styles.emojiInput}
                 value={currentNoteEmoji}
-                // *** AQUÍ ESTÁ LA CORRECCIÓN CLAVE ***
                 onChangeText={handleEmojiChange} 
-                // ************************************
                 placeholder="📖"
                 maxLength={2}
               />
@@ -226,10 +310,64 @@ export default function NoteEditScreen(): React.JSX.Element {
           </ScrollView>
         </View>
       </KeyboardAvoidingView>
+      
+      {/* MODAL DEL ASISTENTE DE IA */}
+      <Modal
+        animationType="fade"
+        transparent={true}
+        visible={isModalVisible}
+        onRequestClose={() => setIsModalVisible(false)}
+      >
+        <TouchableWithoutFeedback onPress={() => setIsModalVisible(false)}>
+          <View style={modalStyles.centeredView}>
+            {/* Evita que los toques dentro del modal lo cierren */}
+            <TouchableWithoutFeedback>
+              <View style={modalStyles.modalView}>
+                <Text style={modalStyles.modalTitle}>Asistente de Diario IA ✨</Text>
+                <Text style={modalStyles.modalSubtitle}>
+                  Escribe una instrucción (ej: "Resume esta entrada en tres frases" o "Genera un plan de acción").
+                </Text>
+                
+                <TextInput
+                  style={modalStyles.promptInput}
+                  placeholder="Tu pregunta para la IA..."
+                  placeholderTextColor="#9CA3AF"
+                  multiline
+                  value={aiPrompt}
+                  onChangeText={setAiPrompt}
+                  editable={!isGenerating}
+                />
+
+                <TouchableOpacity 
+                  style={modalStyles.generateButton}
+                  onPress={handleGenerateWithAI}
+                  disabled={isGenerating || !aiPrompt.trim()}
+                >
+                  {isGenerating ? (
+                    <ActivityIndicator color="#FFFFFF" />
+                  ) : (
+                    <Text style={modalStyles.generateButtonText}>Generar Contenido</Text>
+                  )}
+                </TouchableOpacity>
+              </View>
+            </TouchableWithoutFeedback>
+          </View>
+        </TouchableWithoutFeedback>
+      </Modal>
+
+      {/* Indicador de carga de generación de IA  */}
+      {isGenerating && (
+        <View style={styles.generationOverlay}>
+          <ActivityIndicator size="large" color="#FFFFFF" />
+          <Text style={styles.generationText}>Generando ideas con la IA...</Text>
+        </View>
+      )}
+
     </SafeAreaView>
   );
 }
 
+// --- ESTILOS COMPONENTES PRINCIPALES ---
 const styles = StyleSheet.create({
   container: {
     flex: 1,
@@ -244,7 +382,7 @@ const styles = StyleSheet.create({
     paddingHorizontal: 16,
     paddingVertical: 12,
     borderBottomWidth: 0,
-    zIndex: 10, 
+    zIndex: 10,
   },
   backButton: {
     width: 40,
@@ -260,7 +398,7 @@ const styles = StyleSheet.create({
   headerCenter: {
     flex: 1,
     marginHorizontal: 12,
-    alignItems: 'center', 
+    alignItems: 'center',
     justifyContent: 'center',
   },
   headerTitleText: {
@@ -285,35 +423,35 @@ const styles = StyleSheet.create({
   },
   contentArea: {
     flex: 1,
-    marginTop: -1, 
+    marginTop: -1,
   },
   contentContainer: {
     padding: 0,
-    minHeight: height * 0.9, 
+    minHeight: height * 0.9,
   },
   colorBand: {
-    height: COLOR_BAND_HEIGHT, 
+    height: COLOR_BAND_HEIGHT,
     width: '100%',
     paddingHorizontal: 20,
-    paddingTop: 0, 
-    paddingBottom: 20, 
-    marginTop: 0, 
+    paddingTop: 0,
+    paddingBottom: 20,
+    marginTop: 0,
     justifyContent: 'flex-end',
   },
   floatingTitleBox: {
-    borderRadius: 16, 
-    padding: 15, 
-    marginBottom: 10, 
-    borderWidth: 0, 
-    borderColor: 'transparent', 
+    borderRadius: 16,
+    padding: 15,
+    marginBottom: 10,
+    borderWidth: 0,
+    borderColor: 'transparent',
     shadowColor: '#000',
     shadowOffset: {
       width: 0,
-      height: 2, 
+      height: 2,
     },
-    shadowOpacity: 0.1, 
-    shadowRadius: 4, 
-    elevation: 4, 
+    shadowOpacity: 0.1,
+    shadowRadius: 4,
+    elevation: 4,
   },
   emojiInput: {
     fontSize: 48,
@@ -324,27 +462,26 @@ const styles = StyleSheet.create({
     paddingVertical: 0,
   },
   displayTitle: {
-    fontSize: 32, 
+    fontSize: 32,
     fontWeight: '700',
     color: '#1F2937',
     marginBottom: 0,
     lineHeight: 38,
-    padding: 0, 
+    padding: 0,
     paddingHorizontal: 0,
   },
   contentInput: {
-    fontSize: 18, 
+    fontSize: 18,
     color: '#1F2937',
-    lineHeight: 30, 
+    lineHeight: 30,
     minHeight: height * 0.6,
     paddingBottom: 50,
-    paddingHorizontal: 20, 
-    paddingTop: 20, 
+    paddingHorizontal: 20,
+    paddingTop: 20,
   },
   bottomToolbar: {
     paddingVertical: 8,
     borderTopWidth: 1,
-    // Se ajustaron los colores del toolbar para mayor contraste y consistencia
   },
   toolbarContent: {
     paddingHorizontal: 8,
@@ -371,5 +508,85 @@ const styles = StyleSheet.create({
     width: 1,
     height: 24,
     backgroundColor: '#D1D5DB',
+  },
+  // ESTILOS PARA EL OVERLAY DE CARGA DE IA
+  generationOverlay: {
+    ...StyleSheet.absoluteFillObject,
+    backgroundColor: 'rgba(0, 0, 0, 0.7)',
+    justifyContent: 'center',
+    alignItems: 'center',
+    zIndex: 1000, 
+  },
+  generationText: {
+    marginTop: 10,
+    color: '#FFFFFF',
+    fontSize: 16,
+    fontWeight: '600',
+  }
+});
+
+// --- ESTILOS DEL MODAL DE IA ---
+const modalStyles = StyleSheet.create({
+  centeredView: {
+    flex: 1,
+    justifyContent: 'center',
+    alignItems: 'center',
+    backgroundColor: 'rgba(0, 0, 0, 0.5)',
+  },
+  modalView: {
+    margin: 20,
+    backgroundColor: 'white',
+    borderRadius: 20,
+    padding: 35,
+    alignItems: 'center',
+    shadowColor: '#000',
+    shadowOffset: {
+      width: 0,
+      height: 2,
+    },
+    shadowOpacity: 0.25,
+    shadowRadius: 4,
+    elevation: 5,
+    width: '90%',
+    maxWidth: 400,
+  },
+  modalTitle: {
+    fontSize: 20,
+    fontWeight: '700',
+    marginBottom: 10,
+    color: '#1F2937',
+  },
+  modalSubtitle: {
+    fontSize: 14,
+    textAlign: 'center',
+    marginBottom: 20,
+    color: '#6B7280',
+  },
+  promptInput: {
+    width: '100%',
+    minHeight: 80,
+    maxHeight: 150,
+    backgroundColor: '#F3F4F6',
+    borderRadius: 10,
+    padding: 15,
+    fontSize: 16,
+    color: '#1F2937',
+    borderWidth: 1,
+    borderColor: '#E5E7EB',
+    marginBottom: 20,
+    textAlignVertical: 'top',
+  },
+  generateButton: {
+    backgroundColor: '#3B82F6',
+    borderRadius: 10,
+    padding: 15,
+    elevation: 2,
+    width: '100%',
+    alignItems: 'center',
+  },
+  generateButtonText: {
+    color: 'white',
+    fontWeight: 'bold',
+    fontSize: 16,
   },
 });

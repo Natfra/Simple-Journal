@@ -9,7 +9,15 @@
     "userInterfaceStyle": "automatic",
     "newArchEnabled": true,
     "ios": {
-      "supportsTablet": true
+      "supportsTablet": true,
+    "extra": {
+      "eas": {
+        "projectId": "TU_ID_DE_PROYECTO" 
+      }
+    },
+    "updates": {
+      "url": "https://u.expo.dev/TU_ID_DE_PROYECTO" 
+    }
     },
     "android": {
       "adaptiveIcon": {
@@ -21,7 +29,12 @@
     "web": {
       "bundler": "metro",
       "output": "static",
-      "favicon": "./assets/images/favicon.png"
+      "favicon": "./assets/images/favicon.png",
+      "build": {
+      "babel": {
+        "include": ["@expo/html-elements"]
+      }
+    }
     },
     "plugins": [
       "expo-router",
