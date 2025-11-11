@@ -550,22 +550,6 @@ This project is licensed under the **MIT License** - see the [LICENSE](LICENSE) 
 
 ---
 
-## 📸 Screenshots
-
-<div align="center">
-
-| Home Screen | Create Note | AI Assistant |
-|------------|-------------|--------------|
-| ![Home](./docs/screenshots/home.png) | ![Create](./docs/screenshots/create.png) | ![AI](./docs/screenshots/ai.png) |
-
-| Search | Edit Note | Color Themes |
-|--------|-----------|--------------|
-| ![Search](./docs/screenshots/search.png) | ![Edit](./docs/screenshots/edit.png) | ![Themes](./docs/screenshots/themes.png) |
-
-</div>
-
----
-
 <div align="center">
 
 **Built with ❤️ using React Native & Expo**
