@@ -1,8 +1,9 @@
 // app/(tabs)/index.tsx
 import { useRouter } from 'expo-router';
 import { StatusBar } from 'expo-status-bar';
-import React, { useRef, useState } from 'react';
+import React, { useCallback, useRef, useState } from 'react';
 import {
+  ActivityIndicator,
   Alert,
   Animated,
   Dimensions,
@@ -22,15 +23,10 @@ import {
 } from 'react-native-gesture-handler';
 import { SafeAreaView } from 'react-native-safe-area-context';
 
-const { width } = Dimensions.get('window');
+import { useNotes } from '@/hooks/useNotas';
+import { Note } from '@/services/noteService';
 
-interface Note {
-  id: number;
-  title: string;
-  content: string;
-  date: string;
-  color: string;
-}
+const { width } = Dimensions.get('window');
 
 interface Color {
   name: string;
@@ -40,10 +36,11 @@ interface Color {
 interface SwipeableNoteCardProps {
   note: Note;
   onDelete: () => void;
+  onPress: () => void;
 }
 
 // Componente para las notas con swipe
-const SwipeableNoteCard: React.FC<SwipeableNoteCardProps> = ({ note, onDelete }) => {
+const SwipeableNoteCard: React.FC<SwipeableNoteCardProps> = ({ note, onDelete, onPress }) => {
   const translateX = useRef(new Animated.Value(0)).current;
   const [swiping, setSwiping] = useState<boolean>(false);
 
@@ -62,9 +59,7 @@ const SwipeableNoteCard: React.FC<SwipeableNoteCardProps> = ({ note, onDelete })
     if (state === State.END) {
       setSwiping(false);
       
-      // Si desliza más de 120px hacia la izquierda, eliminar
       if (eventTranslationX < -120) {
-        // Animar hacia fuera completamente
         Animated.timing(translateX, {
           toValue: -width,
           duration: 200,
@@ -73,7 +68,6 @@ const SwipeableNoteCard: React.FC<SwipeableNoteCardProps> = ({ note, onDelete })
           onDelete();
         });
       } else {
-        // Regresar a la posición original
         Animated.spring(translateX, {
           toValue: 0,
           useNativeDriver: true,
@@ -86,7 +80,6 @@ const SwipeableNoteCard: React.FC<SwipeableNoteCardProps> = ({ note, onDelete })
 
   return (
     <View style={styles.swipeContainer}>
-      {/* Background del botón eliminar */}
       <View style={styles.deleteBackground}>
         <View style={styles.deleteBackgroundContent}>
           <Text style={styles.deleteBackgroundIcon}>🗑️</Text>
@@ -94,7 +87,6 @@ const SwipeableNoteCard: React.FC<SwipeableNoteCardProps> = ({ note, onDelete })
         </View>
       </View>
 
-      {/* Tarjeta de nota */}
       <PanGestureHandler
         onGestureEvent={onGestureEvent}
         onHandlerStateChange={onHandlerStateChange}
@@ -105,22 +97,26 @@ const SwipeableNoteCard: React.FC<SwipeableNoteCardProps> = ({ note, onDelete })
           style={[
             styles.noteCard,
             { backgroundColor: note.color },
-            {
-              transform: [{ translateX }],
-            },
+            { transform: [{ translateX }] },
           ]}
         >
-          <Text style={styles.noteTitle} numberOfLines={1}>
-            {note.title}
-          </Text>
-          <Text style={styles.noteContent} numberOfLines={3}>
-            {note.content}
-          </Text>
-          <Text style={styles.noteDate}>
-            {note.date}
-          </Text>
+          <TouchableOpacity
+            activeOpacity={0.95}
+            onPress={onPress}
+            style={styles.noteCardContent}
+          >
+            <View style={styles.noteHeader}>
+              <Text style={styles.noteEmoji}>{note.emoji}</Text>
+              <Text style={styles.noteTitle} numberOfLines={1}>
+                {note.title}
+              </Text>
+            </View>
+            <Text style={styles.noteContent} numberOfLines={3}>
+              {note.content}
+            </Text>
+            <Text style={styles.noteDate}>{note.date}</Text>
+          </TouchableOpacity>
           
-          {/* Indicador visual de swipe */}
           {swiping && (
             <View style={styles.swipeIndicator}>
               <Text style={styles.swipeIndicatorText}>← Desliza para eliminar</Text>
@@ -134,21 +130,25 @@ const SwipeableNoteCard: React.FC<SwipeableNoteCardProps> = ({ note, onDelete })
 
 export default function NotesScreen(): React.JSX.Element {
   const router = useRouter();
-  
-  const [notes, setNotes] = useState<Note[]>([
-    { id: 1, title: 'An amazing story', content: 'Once upon a time there was a developer...', date: '10 Nov 2024', color: '#BFDBFE' },
-    { id: 2, title: 'Shopping List', content: 'Milk, Bread, Eggs, Coffee, Sugar...', date: '09 Nov 2024', color: '#FEF3C7' },
-    { id: 3, title: 'Plan for today', content: 'Meeting at 3pm with the team...', date: '09 Nov 2024', color: '#E9D5FF' },
-    { id: 4, title: 'Work Plan', content: 'Review code, Fix bugs, Deploy to production...', date: '08 Nov 2024', color: '#BBF7D0' },
-    { id: 5, title: 'Contracts', content: 'Sign new contract with client...', date: '07 Nov 2024', color: '#FED7AA' },
-    { id: 6, title: 'Gym workout', content: 'Chest and triceps workout routine...', date: '06 Nov 2024', color: '#FBCFE8' },
-  ]);
-  
-  const [searchText, setSearchText] = useState<string>('');
+  const {
+    notes,
+    isLoading,
+    error,
+    searchQuery,
+    createNewNote,
+    deleteExistingNote,
+    setSearchQuery,
+    clearError,
+    refreshNotes,
+  } = useNotes();
+
+  // Estados del modal
   const [showModal, setShowModal] = useState<boolean>(false);
   const [newNoteTitle, setNewNoteTitle] = useState<string>('');
   const [newNoteContent, setNewNoteContent] = useState<string>('');
+  const [newNoteEmoji, setNewNoteEmoji] = useState<string>('📝');
   const [selectedColor, setSelectedColor] = useState<string>('#BFDBFE');
+  const [isCreating, setIsCreating] = useState<boolean>(false);
 
   const colors: Color[] = [
     { name: 'Azul', color: '#BFDBFE' },
@@ -161,75 +161,119 @@ export default function NotesScreen(): React.JSX.Element {
     { name: 'Rojo', color: '#FECACA' },
   ];
 
-  const filteredNotes: Note[] = notes.filter((note: Note) =>
-    note.title.toLowerCase().includes(searchText.toLowerCase()) ||
-    note.content.toLowerCase().includes(searchText.toLowerCase())
-  );
-
-  const deleteNote = (id: number): void => {
+  // Manejar eliminación de nota
+  const handleDeleteNote = useCallback((id: string): void => {
     Alert.alert(
       'Eliminar Nota',
       '¿Estás seguro de que quieres eliminar esta nota?',
       [
         { text: 'Cancelar', style: 'cancel' },
-        { 
-          text: 'Eliminar', 
-          style: 'destructive', 
-          onPress: (): void => {
-            setNotes((prevNotes: Note[]) => prevNotes.filter((note: Note) => note.id !== id));
-          }
+        {
+          text: 'Eliminar',
+          style: 'destructive',
+          onPress: async (): Promise<void> => {
+            try {
+              await deleteExistingNote(id);
+            } catch (err: any) {
+              Alert.alert('Error', err.message || 'No se pudo eliminar la nota');
+            }
+          },
         },
       ]
     );
-  };
+  }, [deleteExistingNote]);
 
-  const openNoteForEdit = (note: Note): void => {
+  // Abrir nota para editar
+  const openNoteForEdit = useCallback((note: Note): void => {
     router.push({
       pathname: '/(tabs)/details/note-edit',
       params: {
-        id: note.id.toString(),
+        id: note.id,
         title: note.title,
         content: note.content,
         color: note.color,
+        emoji: note.emoji,
         date: note.date,
       },
     });
-  };
+  }, [router]);
 
-  const resetModal = (): void => {
+  // Resetear el modal
+  const resetModal = useCallback((): void => {
     setNewNoteTitle('');
     setNewNoteContent('');
+    setNewNoteEmoji('📝');
     setSelectedColor('#BFDBFE');
     setShowModal(false);
+    setIsCreating(false);
+  }, []);
+
+  // Crear nueva nota
+  const handleCreateNote = useCallback(async (): Promise<void> => {
+    // Validación
+    if (!newNoteTitle.trim()) {
+      Alert.alert('Error', 'El título no puede estar vacío');
+      return;
+    }
+
+    setIsCreating(true);
+
+    try {
+      const newNote = await createNewNote({
+        title: newNoteTitle,
+        content: newNoteContent,
+        emoji: newNoteEmoji,
+        color: selectedColor,
+      });
+
+      // Cerrar modal y mostrar confirmación
+      resetModal();
+      
+      // Opcional: Navegar directamente a la nota creada para editarla
+      Alert.alert(
+        'Nota Creada',
+        '¿Deseas abrir la nota para editarla?',
+        [
+          { text: 'Después', style: 'cancel' },
+          {
+            text: 'Abrir',
+            onPress: () => openNoteForEdit(newNote),
+          },
+        ]
+      );
+    } catch (err: any) {
+      Alert.alert('Error', err.message || 'No se pudo crear la nota');
+    } finally {
+      setIsCreating(false);
+    }
+  }, [newNoteTitle, newNoteContent, newNoteEmoji, selectedColor, createNewNote, resetModal, openNoteForEdit]);
+
+  // Manejar cambio en la búsqueda
+  const handleSearchChange = useCallback((text: string): void => {
+    setSearchQuery(text);
+  }, [setSearchQuery]);
+
+  const clearSearch = useCallback((): void => {
+    setSearchQuery('');
+  }, [setSearchQuery]);
+
+  // Manejar emoji
+  const handleEmojiChange = (text: string) => {
+    if (!text || text.length === 0) {
+      setNewNoteEmoji('📝');
+      return;
+    }
+    setNewNoteEmoji(text.slice(-1));
   };
 
-  const confirmDeleteNote = (id: number): void => {
-    deleteNote(id);
-  };
-
-  const handleSearchChange = (text: string): void => {
-    setSearchText(text);
-  };
-
-  const clearSearch = (): void => {
-    setSearchText('');
-  };
-
-  const handleNewNoteTitleChange = (text: string): void => {
-    setNewNoteTitle(text);
-  };
-
-  const handleNewNoteContentChange = (text: string): void => {
-    setNewNoteContent(text);
-  };
-
-  const handleColorSelection = (color: string): void => {
-    setSelectedColor(color);
-  };
-
-  const openModal = (): void => {
-    setShowModal(true);
-  };
+  // Mostrar error si existe
+  React.useEffect(() => {
+    if (error) {
+      Alert.alert('Error', error, [
+        { text: 'OK', onPress: clearError }
+      ]);
+    }
+  }, [error, clearError]);
 
   return (
     <SafeAreaView style={styles.container}>
@@ -238,10 +282,14 @@ export default function NotesScreen(): React.JSX.Element {
       {/* Header */}
       <View style={styles.header}>
         <View style={styles.headerTop}>
-          <Text style={styles.title}>All Notes</Text>
+          <Text style={styles.title}>Mis Notas</Text>
           <View style={styles.headerIcons}>
-            <TouchableOpacity style={styles.iconButton} activeOpacity={0.7}>
-              <Text style={styles.iconText}>⊞</Text>
+            <TouchableOpacity 
+              style={styles.iconButton} 
+              activeOpacity={0.7}
+              onPress={refreshNotes}
+            >
+              <Text style={styles.iconText}>↻</Text>
             </TouchableOpacity>
             <TouchableOpacity style={styles.iconButton} activeOpacity={0.7}>
               <Text style={styles.iconText}>⋯</Text>
@@ -254,14 +302,14 @@ export default function NotesScreen(): React.JSX.Element {
           <Text style={styles.searchIcon}>🔍</Text>
           <TextInput
             style={styles.searchInput}
-            placeholder="Search notes"
-            value={searchText}
+            placeholder="Buscar notas"
+            value={searchQuery}
             onChangeText={handleSearchChange}
             placeholderTextColor="#9CA3AF"
             returnKeyType="search"
             autoCorrect={false}
           />
-          {searchText.length > 0 && (
+          {searchQuery.length > 0 && (
             <TouchableOpacity onPress={clearSearch} activeOpacity={0.7}>
               <Text style={styles.clearIcon}>×</Text>
             </TouchableOpacity>
@@ -270,39 +318,42 @@ export default function NotesScreen(): React.JSX.Element {
       </View>
 
       {/* Notes List */}
-      <ScrollView 
-        style={styles.notesList} 
-        showsVerticalScrollIndicator={false}
-        contentContainerStyle={filteredNotes.length === 0 ? styles.emptyContainer : styles.notesContainer}
-      >
-        {filteredNotes.length === 0 ? (
-          <View style={styles.emptyState}>
-            <Text style={styles.emptyIcon}>📝</Text>
-            <Text style={styles.emptyTitle}>No se encontraron notas</Text>
-            <Text style={styles.emptySubtitle}>
-              {searchText ? 'Intenta con otros términos de búsqueda' : 'Crea tu primera nota tocando el botón +'}
-            </Text>
-          </View>
-        ) : (
-          filteredNotes.map((note: Note) => (
-            <TouchableOpacity
-              key={note.id}
-              activeOpacity={0.95}
-              onPress={() => openNoteForEdit(note)}
-            >
+      {isLoading ? (
+        <View style={styles.loadingContainer}>
+          <ActivityIndicator size="large" color="#3B82F6" />
+          <Text style={styles.loadingText}>Cargando notas...</Text>
+        </View>
+      ) : (
+        <ScrollView 
+          style={styles.notesList} 
+          showsVerticalScrollIndicator={false}
+          contentContainerStyle={notes.length === 0 ? styles.emptyContainer : styles.notesContainer}
+        >
+          {notes.length === 0 ? (
+            <View style={styles.emptyState}>
+              <Text style={styles.emptyIcon}>📝</Text>
+              <Text style={styles.emptyTitle}>No se encontraron notas</Text>
+              <Text style={styles.emptySubtitle}>
+                {searchQuery ? 'Intenta con otros términos de búsqueda' : 'Crea tu primera nota tocando el botón +'}
+              </Text>
+            </View>
+          ) : (
+            notes.map((note: Note) => (
               <SwipeableNoteCard
+                key={note.id}
                 note={note}
-                onDelete={() => confirmDeleteNote(note.id)}
+                onDelete={() => handleDeleteNote(note.id)}
+                onPress={() => openNoteForEdit(note)}
               />
-            </TouchableOpacity>
-          ))
-        )}
-      </ScrollView>
+            ))
+          )}
+        </ScrollView>
+      )}
 
       {/* Floating Action Button */}
       <TouchableOpacity
         style={styles.fab}
-        onPress={openModal}
+        onPress={() => setShowModal(true)}
         activeOpacity={0.8}
       >
         <Text style={styles.plusIcon}>+</Text>
@@ -324,52 +375,100 @@ export default function NotesScreen(): React.JSX.Element {
                 style={styles.closeButton}
                 hitSlop={{ top: 10, bottom: 10, left: 10, right: 10 }}
                 activeOpacity={0.7}
+                disabled={isCreating}
               >
                 <Text style={styles.closeText}>×</Text>
               </TouchableOpacity>
             </View>
 
-            <View style={styles.colorSection}>
-              <Text style={styles.colorLabel}>Elige un color:</Text>
-              <View style={styles.colorGrid}>
-                {colors.map((color: Color) => (
-                  <TouchableOpacity
-                    key={color.color}
-                    style={[
-                      styles.colorButton,
-                      { backgroundColor: color.color },
-                      selectedColor === color.color && styles.selectedColor
-                    ]}
-                    onPress={() => handleColorSelection(color.color)}
-                    activeOpacity={0.7}
-                    accessibilityLabel={`Seleccionar color ${color.name}`}
-                    accessibilityRole="button"
-                  >
-                    {selectedColor === color.color && (
-                      <View style={styles.colorIndicator} />
-                    )}
-                  </TouchableOpacity>
-                ))}
+            <ScrollView showsVerticalScrollIndicator={false}>
+              {/* Selector de Emoji */}
+              <View style={styles.emojiSection}>
+                <Text style={styles.inputLabel}>Emoji:</Text>
+                <TextInput
+                  style={styles.emojiInput}
+                  value={newNoteEmoji}
+                  onChangeText={handleEmojiChange}
+                  placeholder="📝"
+                  maxLength={2}
+                  editable={!isCreating}
+                />
               </View>
-            </View>
 
+              {/* Título */}
+              <View style={styles.inputSection}>
+                <Text style={styles.inputLabel}>Título:</Text>
+                <TextInput
+                  style={styles.input}
+                  placeholder="Ej: Mi día increíble"
+                  value={newNoteTitle}
+                  onChangeText={setNewNoteTitle}
+                  maxLength={50}
+                  editable={!isCreating}
+                />
+              </View>
+
+              {/* Contenido */}
+              <View style={styles.inputSection}>
+                <Text style={styles.inputLabel}>Contenido (opcional):</Text>
+                <TextInput
+                  style={[styles.input, styles.textArea]}
+                  placeholder="Escribe aquí..."
+                  value={newNoteContent}
+                  onChangeText={setNewNoteContent}
+                  multiline
+                  numberOfLines={4}
+                  textAlignVertical="top"
+                  editable={!isCreating}
+                />
+              </View>
+
+              {/* Selector de Color */}
+              <View style={styles.colorSection}>
+                <Text style={styles.colorLabel}>Color:</Text>
+                <View style={styles.colorGrid}>
+                  {colors.map((color: Color) => (
+                    <TouchableOpacity
+                      key={color.color}
+                      style={[
+                        styles.colorButton,
+                        { backgroundColor: color.color },
+                        selectedColor === color.color && styles.selectedColor
+                      ]}
+                      onPress={() => setSelectedColor(color.color)}
+                      activeOpacity={0.7}
+                      disabled={isCreating}
+                    >
+                      {selectedColor === color.color && (
+                        <View style={styles.colorIndicator} />
+                      )}
+                    </TouchableOpacity>
+                  ))}
+                </View>
+              </View>
+            </ScrollView>
+
+            {/* Botones */}
             <View style={styles.buttonRow}>
               <TouchableOpacity
                 style={[styles.button, styles.cancelButton]}
                 onPress={resetModal}
                 activeOpacity={0.7}
-                accessibilityLabel="Cancelar creación de nota"
-                accessibilityRole="button"
+                disabled={isCreating}
               >
                 <Text style={styles.cancelButtonText}>Cancelar</Text>
               </TouchableOpacity>
               <TouchableOpacity
-                style={[styles.button, styles.createButton]}
+                style={[styles.button, styles.createButton, isCreating && styles.disabledButton]}
+                onPress={handleCreateNote}
                 activeOpacity={0.7}
-                accessibilityLabel="Crear nueva nota"
-                accessibilityRole="button"
+                disabled={isCreating}
               >
-                <Text style={styles.createButtonText}>Crear Nota</Text>
+                {isCreating ? (
+                  <ActivityIndicator color="white" />
+                ) : (
+                  <Text style={styles.createButtonText}>Crear Nota</Text>
+                )}
               </TouchableOpacity>
             </View>
           </View>
@@ -442,6 +541,16 @@ const styles = StyleSheet.create({
     color: '#9CA3AF',
     paddingLeft: 8,
   },
+  loadingContainer: {
+    flex: 1,
+    justifyContent: 'center',
+    alignItems: 'center',
+  },
+  loadingText: {
+    marginTop: 12,
+    fontSize: 16,
+    color: '#6B7280',
+  },
   notesList: {
     flex: 1,
     paddingHorizontal: 20,
@@ -510,13 +619,22 @@ const styles = StyleSheet.create({
     position: 'relative',
     zIndex: 1,
     shadowColor: '#000',
-    shadowOffset: {
-      width: 0,
-      height: 2,
-    },
+    shadowOffset: { width: 0, height: 2 },
     shadowOpacity: 0.1,
     shadowRadius: 4,
     elevation: 3,
+  },
+  noteCardContent: {
+    flex: 1,
+  },
+  noteHeader: {
+    flexDirection: 'row',
+    alignItems: 'center',
+    marginBottom: 8,
+  },
+  noteEmoji: {
+    fontSize: 24,
+    marginRight: 8,
   },
   swipeIndicator: {
     position: 'absolute',
@@ -535,10 +653,10 @@ const styles = StyleSheet.create({
     fontWeight: '500',
   },
   noteTitle: {
+    flex: 1,
     fontSize: 18,
     fontWeight: '600',
     color: '#1F2937',
-    marginBottom: 8,
   },
   noteContent: {
     fontSize: 15,
@@ -562,10 +680,7 @@ const styles = StyleSheet.create({
     justifyContent: 'center',
     alignItems: 'center',
     shadowColor: '#3B82F6',
-    shadowOffset: {
-      width: 0,
-      height: 4,
-    },
+    shadowOffset: { width: 0, height: 4 },
     shadowOpacity: 0.3,
     shadowRadius: 8,
     elevation: 8,
@@ -588,13 +703,13 @@ const styles = StyleSheet.create({
     padding: 24,
     width: '100%',
     maxWidth: 400,
-    maxHeight: '80%',
+    maxHeight: '85%',
   },
   modalHeader: {
     flexDirection: 'row',
     justifyContent: 'space-between',
     alignItems: 'center',
-    marginBottom: 24,
+    marginBottom: 20,
   },
   modalTitle: {
     fontSize: 24,
@@ -612,6 +727,27 @@ const styles = StyleSheet.create({
     color: '#9CA3AF',
     fontWeight: '300',
   },
+  emojiSection: {
+    marginBottom: 16,
+  },
+  emojiInput: {
+    fontSize: 48,
+    height: 60,
+    textAlign: 'center',
+    backgroundColor: '#F9FAFB',
+    borderRadius: 12,
+    borderWidth: 1.5,
+    borderColor: '#E5E7EB',
+  },
+  inputSection: {
+    marginBottom: 16,
+  },
+  inputLabel: {
+    fontSize: 14,
+    fontWeight: '600',
+    color: '#374151',
+    marginBottom: 8,
+  },
   input: {
     borderWidth: 1.5,
     borderColor: '#E5E7EB',
@@ -619,7 +755,6 @@ const styles = StyleSheet.create({
     paddingHorizontal: 16,
     paddingVertical: 14,
     fontSize: 16,
-    marginBottom: 16,
     color: '#374151',
     backgroundColor: '#FAFAFA',
   },
@@ -628,13 +763,13 @@ const styles = StyleSheet.create({
     textAlignVertical: 'top',
   },
   colorSection: {
-    marginBottom: 24,
+    marginBottom: 20,
   },
   colorLabel: {
-    fontSize: 16,
+    fontSize: 14,
     fontWeight: '600',
     color: '#374151',
-    marginBottom: 16,
+    marginBottom: 12,
   },
   colorGrid: {
     flexDirection: 'row',
@@ -655,10 +790,7 @@ const styles = StyleSheet.create({
     borderColor: '#374151',
     borderWidth: 3,
     shadowColor: '#000',
-    shadowOffset: {
-      width: 0,
-      height: 2,
-    },
+    shadowOffset: { width: 0, height: 2 },
     shadowOpacity: 0.25,
     shadowRadius: 4,
     elevation: 4,
@@ -672,6 +804,7 @@ const styles = StyleSheet.create({
   buttonRow: {
     flexDirection: 'row',
     gap: 12,
+    marginTop: 8,
   },
   button: {
     flex: 1,
@@ -696,5 +829,8 @@ const styles = StyleSheet.create({
     color: 'white',
     fontWeight: '600',
     fontSize: 16,
+  },
+  disabledButton: {
+    opacity: 0.6,
   },
 });

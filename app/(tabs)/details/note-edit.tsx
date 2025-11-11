@@ -1,4 +1,5 @@
 // app/(tabs)/details/note-edit.tsx
+import { updateNote } from '@/services/noteService';
 import { Ionicons } from '@expo/vector-icons';
 import { useLocalSearchParams, useRouter } from 'expo-router';
 import { StatusBar } from 'expo-status-bar';
@@ -159,15 +160,43 @@ export default function NoteEditScreen(): React.JSX.Element {
   }, [aiPrompt, currentNoteContent]);
 
   // TEMPORAL: Función de guardado simple (debe ser reemplazada por la lógica de DB)
-  const handleSaveNote = () => {
-    if (!currentNoteTitle.trim() || !currentNoteContent.trim()) {
-       Alert.alert('Error', 'El título y el contenido no pueden estar vacíos.');
-       return;
+  const handleSaveNote = async () => {
+    if (!currentNoteTitle.trim()) {
+      Alert.alert('Error', 'El título no puede estar vacío.');
+      return;
     }
-    // Aquí iría la llamada a createEntry/updateEntry de useAppDB
-    Alert.alert('Guardado (TEMP)', `Nota "${currentNoteTitle}" guardada localmente.`);
-    // router.back();
-  }
+
+    try {
+      const noteId = params.id as string;
+      
+      if (!noteId) {
+        Alert.alert('Error', 'No se pudo identificar la nota.');
+        return;
+      }
+
+      // Actualizar la nota usando el servicio
+      await updateNote({
+        id: noteId,
+        title: currentNoteTitle,
+        content: currentNoteContent,
+        emoji: currentNoteEmoji,
+        color: initialNoteColor,
+      });
+
+      Alert.alert(
+        'Guardado',
+        'Nota actualizada correctamente',
+        [
+          {
+            text: 'OK',
+            onPress: () => router.back(),
+          },
+        ]
+      );
+    } catch (error: any) {
+      Alert.alert('Error', error.message || 'No se pudo guardar la nota');
+    }
+  };
 
 
   return (
