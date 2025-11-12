@@ -10,14 +10,16 @@
     "newArchEnabled": true,
     "ios": {
       "supportsTablet": true,
-    "extra": {
-      "eas": {
-        "projectId": "TU_ID_DE_PROYECTO" 
+      "extra": {
+        "EXPO_PUBLIC_GEMINI_API_KEY": "${EXPO_PUBLIC_GEMINI_API_KEY}",
+        "eas": {
+          "projectId": "TU_ID_DE_PROYECTO"
+          
+        }
+      },
+      "updates": {
+        "url": "https://u.expo.dev/TU_ID_DE_PROYECTO"
       }
-    },
-    "updates": {
-      "url": "https://u.expo.dev/TU_ID_DE_PROYECTO" 
-    }
     },
     "android": {
       "adaptiveIcon": {
@@ -31,10 +33,12 @@
       "output": "static",
       "favicon": "./assets/images/favicon.png",
       "build": {
-      "babel": {
-        "include": ["@expo/html-elements"]
+        "babel": {
+          "include": [
+            "@expo/html-elements"
+          ]
+        }
       }
-    }
     },
     "plugins": [
       "expo-router",
@@ -46,7 +50,8 @@
           "resizeMode": "contain",
           "backgroundColor": "#ffffff"
         }
-      ]
+      ],
+      "expo-sqlite"
     ],
     "experiments": {
       "typedRoutes": true

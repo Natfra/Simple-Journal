@@ -3,8 +3,18 @@
  * Utiliza el modelo gemini-2.5-flash-preview-09-2025 con conexión a Google Search.
  */
 
-// NOTA: 'apiKey' se deja vacío; el entorno Canvas lo inyectará automáticamente en tiempo de ejecución.
-const API_KEY = ""; 
+// Importamos el módulo 'expo-constants' para acceder a las variables de entorno.
+import Constants from 'expo-constants';
+
+// Leemos la clave de API desde el archivo .env, que debe estar definida como EXPO_PUBLIC_GEMINI_API_KEY.
+// El entorno Canvas o la configuración de Expo se encargará de inyectar el valor.
+const API_KEY = Constants.expoConfig?.extra?.EXPO_PUBLIC_GEMINI_API_KEY || ""; 
+
+// Si la clave no se encuentra, se mostrará un error para alertar al desarrollador.
+if (!API_KEY) {
+    console.error("ADVERTENCIA: La clave de la API de Gemini no se ha cargado. Verifica tu archivo .env.");
+}
+
 const API_URL = `https://generativelanguage.googleapis.com/v1beta/models/gemini-2.5-flash-preview-09-2025:generateContent?key=${API_KEY}`;
 const MAX_RETRIES = 3;
 
@@ -26,6 +36,11 @@ export async function generateGeminiContent(
     useSearchGrounding: boolean = false
 ): Promise<GemeniResponse> {
     
+    // Si la clave de API no está, lanzamos un error inmediatamente para no hacer la llamada.
+    if (!API_KEY) {
+        throw new Error("La clave de API de Gemini no está configurada. Revisa el archivo .env.");
+    }
+
     const payload = {
         contents: [{ parts: [{ text: prompt }] }],
         // Usamos Google Search para grounding si es necesario (información actualizada)
